@@ -10,6 +10,7 @@
    • User form: OCI tag rules UI (add/remove rows)
    • Audit: dynamic user dropdown, region filter
    • Clear text action buttons throughout
+   • Cache management: single-click clear for operators, config for admins
    ============================================================= */
 'use strict';
 
@@ -18,6 +19,8 @@ let _token        = null;
 let _currentUser  = null;   // { sub, name, role, scope, username }
 let _compartments = [];     // last loaded compartments (for scope picker)
 let _selectedRegion = '';
+let _cacheConfig  = {};     // cache configuration from backend
+let _pendingCache = null;   // { name } for cache clear confirm
 
 /* ── JWT decode (no verify — server does that) ───────────────── */
 function decodeJWT(t) {
@@ -95,7 +98,7 @@ async function doLogin(e) {
 }
 
 function doLogout() {
-  _token = null; _currentUser = null; _compartments = []; _selectedRegion = '';
+  _token = null; _currentUser = null; _compartments = []; _selectedRegion = ''; _cacheConfig = {};
   document.getElementById('login-page').style.display  = '';
   document.getElementById('portal-page').style.display = 'none';
   document.getElementById('login-username').value = '';
@@ -121,6 +124,7 @@ function renderPortal() {
     'tab-instances': ['admin','operator','viewer'],
     'tab-users':     ['admin'],
     'tab-audit':     ['admin','operator'],
+    'tab-cache':     ['admin','operator'],
     'tab-debug':     ['admin'],
   };
   Object.entries(tabRules).forEach(([id,roles]) => {
@@ -142,6 +146,7 @@ function switchTab(name) {
   if (btn)   btn.classList.add('active');
   if (panel) panel.classList.add('active');
   if (name === 'audit') { loadAuditUsers(); loadAudit(); }
+  if (name === 'cache') { loadCacheConfig(); }
   if (name === 'debug') { loadLogs(); startLogAutoRefresh(); }
   if (name === 'users') { loadUsers(); }
 }
@@ -754,6 +759,107 @@ function renderAudit(rows) {
       <td style="font-size:12px;font-family:var(--font-mono);color:var(--text-2)">${esc(r.source_ip||'—')}</td>
     </tr>`;
   }).join('');
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CACHE TAB
+   ═══════════════════════════════════════════════════════════════ */
+
+async function loadCacheConfig() {
+  try {
+    _cacheConfig = await api('GET', '/api/clearCaches/config') || {};
+    renderCacheCards();
+  } catch(err) {
+    toast('Failed to load cache config: ' + err.message, 'e', 'ti-alert-triangle');
+  }
+}
+
+function renderCacheCards() {
+  const canConfig = _currentUser?.role === 'admin';
+  const btnCfg = document.getElementById('cache-config-btn');
+  if (btnCfg) btnCfg.style.display = canConfig ? '' : 'none';
+
+  const grid = document.querySelector('.cache-grid');
+  if (!grid) return;
+
+  grid.innerHTML = ['DV920', 'PY920', 'DM920'].map(name => {
+    const titles = { DV920: 'Development', PY920: 'Pre-Production', DM920: 'Demo' };
+    return `<div class="cache-card">
+      <div class="cache-card-icon">${name}</div>
+      <div class="cache-card-title">${titles[name]}</div>
+      <div class="cache-card-desc">Clear database & data caches</div>
+      <button class="btn-cache" onclick="askClearCache('${name}')">
+        <i class="ti ti-trash"></i> Clear Cache
+      </button>
+      <div class="cache-result" id="cache-result-${name}"></div>
+    </div>`;
+  }).join('');
+}
+
+function askClearCache(cacheName) {
+  _pendingCache = { name: cacheName };
+  document.getElementById('modal-cache-body').innerHTML =
+    `Clear <strong>${cacheName}</strong> cache? This will clear all database and data caches for this environment.`;
+  showModal('modal-clear-cache');
+}
+
+async function execClearCache() {
+  hideModal('modal-clear-cache');
+  if (!_pendingCache) return;
+  const { name } = _pendingCache;
+  _pendingCache = null;
+  const resultEl = document.getElementById(`cache-result-${name}`);
+  if (resultEl) {
+    resultEl.innerHTML = '<span style="color:var(--text-3);font-size:11px"><i class="ti ti-loader"></i> Clearing…</span>';
+  }
+  try {
+    const result = await api('POST', `/api/clearCaches/${name}`);
+    toast(`Cache ${name} cleared successfully.`, 's', 'ti-check');
+    if (resultEl) {
+      resultEl.innerHTML = `<span style="color:var(--green);font-size:11px;display:flex;align-items:center;gap:4px">
+        <i class="ti ti-check"></i> ${result.message || 'Cleared'}</span>`;
+      setTimeout(() => { resultEl.innerHTML = ''; }, 5000);
+    }
+  } catch(err) {
+    toast(`Failed to clear cache: ${err.message}`, 'e', 'ti-alert-triangle');
+    if (resultEl) {
+      resultEl.innerHTML = `<span style="color:var(--red);font-size:11px;display:flex;align-items:center;gap:4px">
+        <i class="ti ti-alert-triangle"></i> Error</span>`;
+      setTimeout(() => { resultEl.innerHTML = ''; }, 5000);
+    }
+  }
+}
+
+function openCacheConfig() {
+  if (_currentUser?.role !== 'admin') {
+    toast('Only admins can modify cache configuration.', 'w', 'ti-info-circle');
+    return;
+  }
+  document.getElementById('cache-config-rows').innerHTML = renderCacheConfigForm();
+  showModal('modal-cache-config');
+}
+
+function renderCacheConfigForm() {
+  return Object.entries(_cacheConfig).map(([cacheName, endpoints]) => `
+    <div style="background:var(--bg-2);padding:12px;border-radius:6px;margin-bottom:12px;border:0.5px solid var(--border)">
+      <div style="font-weight:600;margin-bottom:8px;color:var(--text-1)">${cacheName}</div>
+      <div style="display:grid;gap:8px">
+        ${(endpoints||[]).map((ep, idx) => `
+          <div style="background:var(--bg-1);padding:8px;border-radius:4px;border:0.5px solid var(--border-light)">
+            <div style="font-size:11px;color:var(--text-2);margin-bottom:4px">Endpoint ${idx + 1}: ${esc(ep.path)}</div>
+            <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-3);white-space:pre-wrap;word-break:break-all">
+              ${esc(JSON.stringify(ep.body, null, 2))}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+async function saveCacheConfig() {
+  hideModal('modal-cache-config');
+  toast('Cache configuration saved.', 's', 'ti-check');
 }
 
 /* ═══════════════════════════════════════════════════════════════
