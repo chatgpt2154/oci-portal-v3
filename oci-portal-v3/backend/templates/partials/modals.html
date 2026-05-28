@@ -43,3 +43,36 @@
     </div>
   </div>
 </div>
+
+<!-- Clear cache confirm -->
+<div id="modal-clear-cache" class="modal-backdrop" onclick="hideModal('modal-clear-cache')">
+  <div class="modal" onclick="event.stopPropagation()">
+    <h3>Clear cache</h3>
+    <p id="modal-cache-body"></p>
+    <div class="modal-acts">
+      <button class="btn" onclick="hideModal('modal-clear-cache')"><i class="ti ti-x"></i> Cancel</button>
+      <button class="btn btn-danger" onclick="execClearCache()">
+        <i class="ti ti-trash"></i> Clear cache
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Cache configuration modal -->
+<div id="modal-cache-config" class="modal-backdrop" onclick="hideModal('modal-cache-config')">
+  <div class="modal" style="width:700px;max-width:95vw" onclick="event.stopPropagation()">
+    <h3>Cache Configuration</h3>
+    <p style="margin-bottom:12px;font-size:13px;color:var(--text-2)">
+      Edit cache endpoints and instance names. Changes are applied immediately.
+    </p>
+    <div id="cache-config-rows" style="max-height:500px;overflow-y:auto;margin-bottom:1rem">
+      <!-- Populated by JS -->
+    </div>
+    <div class="modal-acts">
+      <button class="btn" onclick="hideModal('modal-cache-config')"><i class="ti ti-x"></i> Done</button>
+      <button class="btn btn-success" onclick="saveCacheConfig()">
+        <i class="ti ti-check"></i> Save Configuration
+      </button>
+    </div>
+  </div>
+</div>
